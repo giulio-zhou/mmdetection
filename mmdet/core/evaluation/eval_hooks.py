@@ -13,8 +13,8 @@ from torch.utils.data import Dataset
 
 from .coco_utils import results2json, fast_eval_recall
 from .mean_ap import eval_map
-from mmdet import datasets
-
+# from mmdet import datasets
+import mmdet.datasets
 
 class DistEvalHook(Hook):
 
@@ -22,7 +22,7 @@ class DistEvalHook(Hook):
         if isinstance(dataset, Dataset):
             self.dataset = dataset
         elif isinstance(dataset, dict):
-            self.dataset = obj_from_dict(dataset, datasets,
+            self.dataset = obj_from_dict(dataset, mmdet.datasets,
                                          {'test_mode': True})
         else:
             raise TypeError(

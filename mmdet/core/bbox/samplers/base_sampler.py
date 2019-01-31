@@ -1,11 +1,13 @@
 from abc import ABCMeta, abstractmethod
 
+import six
 import torch
 
 from .sampling_result import SamplingResult
 
 
-class BaseSampler(metaclass=ABCMeta):
+@six.add_metaclass(ABCMeta)
+class BaseSampler():
 
     def __init__(self,
                  num,

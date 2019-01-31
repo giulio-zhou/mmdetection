@@ -95,7 +95,7 @@ class RandomCrop(object):
                  min_ious=(0.1, 0.3, 0.5, 0.7, 0.9),
                  min_crop_size=0.3):
         # 1: return ori img
-        self.sample_mode = (1, *min_ious, 0)
+        self.sample_mode = (1,) + min_ious + (0,)
         self.min_crop_size = min_crop_size
 
     def __call__(self, img, boxes, labels):

@@ -1,25 +1,27 @@
 import mmcv
 
-from . import assigners, samplers
+# from . import assigners, samplers
+import mmdet.core.bbox.assigners
+import mmdet.core.bbox.samplers
 
 
 def build_assigner(cfg, **kwargs):
-    if isinstance(cfg, assigners.BaseAssigner):
+    if isinstance(cfg, mmdet.core.bbox.assigners.BaseAssigner):
         return cfg
     elif isinstance(cfg, dict):
         return mmcv.runner.obj_from_dict(
-            cfg, assigners, default_args=kwargs)
+            cfg, mmdet.core.bbox.assigners, default_args=kwargs)
     else:
         raise TypeError('Invalid type {} for building a sampler'.format(
             type(cfg)))
 
 
 def build_sampler(cfg, **kwargs):
-    if isinstance(cfg, samplers.BaseSampler):
+    if isinstance(cfg, mmdet.core.bbox.samplers.BaseSampler):
         return cfg
     elif isinstance(cfg, dict):
         return mmcv.runner.obj_from_dict(
-            cfg, samplers, default_args=kwargs)
+            cfg, mmdet.core.bbox.samplers, default_args=kwargs)
     else:
         raise TypeError('Invalid type {} for building a sampler'.format(
             type(cfg)))

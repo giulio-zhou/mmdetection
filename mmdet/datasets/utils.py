@@ -9,7 +9,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from .concat_dataset import ConcatDataset
 from .repeat_dataset import RepeatDataset
-from .. import datasets
+# import ..datasets
+import mmdet.datasets
 
 
 def to_tensor(data):
@@ -107,7 +108,7 @@ def get_dataset(data_cfg):
         data_info['ann_file'] = ann_files[i]
         data_info['proposal_file'] = proposal_files[i]
         data_info['img_prefix'] = img_prefixes[i]
-        dset = obj_from_dict(data_info, datasets)
+        dset = obj_from_dict(data_info, mmdet.datasets)
         dsets.append(dset)
     if len(dsets) > 1:
         dset = ConcatDataset(dsets)
