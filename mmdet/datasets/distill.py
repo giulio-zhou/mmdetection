@@ -20,6 +20,7 @@ class DistillDataset(CustomDataset):
                 if len(frame_gt) > 0:
                     gt_bboxes = frame_gt[['xmin', 'ymin', 'xmax', 'ymax']]
                     gt_bboxes = np.array(gt_bboxes, dtype=np.float32)
+                    gt_bboxes *= [width, height, width, height]
                     # Assume only one category for now.
                     gt_labels = np.ones(len(gt_bboxes), dtype=np.int64)
                 else:
@@ -30,6 +31,8 @@ class DistillDataset(CustomDataset):
                 img_info = dict(filename=img_path, height=height, width=width)
                 self.labels.append(ann)
                 self.img_infos.append(img_info)
+        self.img_ids = np.arange(len(self.labels))
+        self.cat_ids = np.arange(len(DistillDataset.CLASSES))
         return self.img_infos
     def get_ann_info(self, idx):
         return self.labels[idx]
