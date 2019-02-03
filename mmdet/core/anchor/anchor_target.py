@@ -112,7 +112,8 @@ def anchor_target_single(flat_anchors,
     else:
         bbox_assigner = build_assigner(cfg.assigner)
         assign_result = bbox_assigner.assign(anchors, gt_bboxes, None,
-                                             gt_labels)
+                                             # gt_labels)
+                                             None)
         bbox_sampler = PseudoSampler()
         sampling_result = bbox_sampler.sample(assign_result, anchors,
                                               gt_bboxes)
@@ -120,7 +121,11 @@ def anchor_target_single(flat_anchors,
     num_valid_anchors = anchors.shape[0]
     bbox_targets = torch.zeros_like(anchors)
     bbox_weights = torch.zeros_like(anchors)
-    labels = anchors.new_zeros(num_valid_anchors, dtype=torch.long)
+    if gt_labels is not None and (len(gt_labels.size()) > 1 or gt_labels.dtype != torch.long):
+        labels = anchors.new_zeros((num_valid_anchors,) + gt_labels.size()[1:],
+                                   dtype=gt_labels.dtype)
+    else:
+        labels = anchors.new_zeros(num_valid_anchors, dtype=torch.long)
     label_weights = anchors.new_zeros(num_valid_anchors, dtype=torch.float)
 
     pos_inds = sampling_result.pos_inds

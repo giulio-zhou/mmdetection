@@ -68,3 +68,11 @@ class RetinaHead(AnchorHead):
         cls_score = self.retina_cls(cls_feat)
         bbox_pred = self.retina_reg(reg_feat)
         return cls_score, bbox_pred
+
+
+@HEADS.register_module
+class RetinaDistillHead(RetinaHead):
+    def loss(self, cls_scores, bbox_preds, gt_bboxes, gt_labels,
+             distill_targets, img_metas, cfg):
+        return super(RetinaDistillHead, self).loss(
+                cls_scores, bbox_preds, gt_bboxes, distill_targets, img_metas, cfg)

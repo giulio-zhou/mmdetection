@@ -23,10 +23,16 @@ class DistillDataset(CustomDataset):
                     gt_bboxes *= [width, height, width, height]
                     # Assume only one category for now.
                     gt_labels = np.ones(len(gt_bboxes), dtype=np.int64)
+                    if 'conf' in frame_gt.columns:
+                        distill_targets = np.array(frame_gt['conf'])
+                    else:
+                        distill_targets = gt_labels
                 else:
                     gt_bboxes = np.zeros((0, 4), dtype=np.float32)
                     gt_labels = np.array([], dtype=np.int64)
+                    distill_targets = np.array([], dtype=np.float32)
                 ann = dict(bboxes=gt_bboxes, labels=gt_labels,
+                           distill_targets=distill_targets,
                            bboxes_ignore=np.zeros((0, 4), dtype=np.float32))
                 img_info = dict(filename=img_path, height=height, width=width)
                 self.labels.append(ann)

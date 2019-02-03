@@ -8,7 +8,7 @@ from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
 
 from mmdet.core import (DistOptimizerHook, DistEvalmAPHook,
                         CocoDistEvalRecallHook, CocoDistEvalmAPHook)
-from mmdet.datasets import build_dataloader
+from mmdet.datasets import build_dataloader, get_dataset
 from mmdet.models import RPN
 from .env import get_root_logger
 
@@ -96,7 +96,10 @@ def _dist_train(model, dataset, cfg, validate=False):
     runner.run(data_loaders, cfg.workflow, cfg.total_epochs)
 
 
-def _non_dist_train(model, dataset, cfg, validate=False):
+def _non_dist_train(model, train_dataset, cfg, validate=False):
+    datasets = [train_dataset]
+    if validate:
+        datasets.append(get_dataset(cfg.data.val))
     # prepare data loaders
     data_loaders = [
         build_dataloader(
@@ -105,6 +108,7 @@ def _non_dist_train(model, dataset, cfg, validate=False):
             cfg.data.workers_per_gpu,
             cfg.gpus,
             dist=False)
+        for dataset in datasets
     ]
     # put model on gpus
     model = MMDataParallel(model, device_ids=range(cfg.gpus)).cuda()
