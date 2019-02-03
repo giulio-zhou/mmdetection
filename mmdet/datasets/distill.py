@@ -1,4 +1,5 @@
 import glob
+import json
 import numpy as np
 import os
 import pandas as pd
@@ -40,6 +41,11 @@ class DistillDataset(CustomDataset):
         self.img_ids = [i for i in range(len(self.labels))]
         self.cat_ids = [i for i in range(len(DistillDataset.CLASSES))]
         # For now, use img_prefix once and set it to empty afterwards.
+        self.img_ids = np.arange(len(self.labels))
+        self.cat_ids = np.arange(len(DistillDataset.CLASSES))
+        # Create COCO annotation object.
+        self.coco = self._get_ann_file(ann_file)
+        # self._COCO = COCO(annofile)
         self.img_prefix = ''
         return self.img_infos
     def get_ann_info(self, idx):
@@ -48,3 +54,44 @@ class DistillDataset(CustomDataset):
         valid_inds = filter(lambda i: len(self.labels[i]) > 0,
                             np.arange(len(self.labels)))
         return valid_inds
+    def _get_ann_file(self, label_path, default_path='distill_anno.json'):
+        if os.path.exists(default_path):
+            return default_path
+        df = pd.read_csv(label_path)
+        filenames = sorted(np.unique(df['filename']))
+        i = 0
+        json_file = {}
+        json_file['categories'] = [dict(id=1, name='obj', supercategory='obj')]
+        json_file['images'], json_file['annotations'] = [], []
+        for filename in filenames:
+            print(filename)
+            img_paths = sorted(glob.glob(filename + '/*'))
+            height, width = skio.imread(img_paths[0]).shape[:2]
+            for frame_no in range(len(img_paths)):
+                frame_df = df[(df['filename'] == filename) &
+                              (df['frame_no'] == frame_no)]
+                json_file['images'].extend(
+                  [{'id': i,
+                    'width': width,
+                    'height': height,
+                    'file_name': img_paths[frame_no]}])
+                if len(frame_df) == 0:
+                    i += 1
+                    continue
+                dets = np.array(frame_df[['xmin', 'ymin', 'xmax', 'ymax']])
+                dets *= [width, height, width, height]
+                xs = dets[:, 0]
+                ys = dets[:, 1]
+                ws = dets[:, 2] - xs # + 1
+                hs = dets[:, 3] - ys # + 1
+                xs, ys, ws, hs = map(lambda x: map(float, x), [xs, ys, ws, hs])
+                json_file['annotations'].extend(
+                  [{'id': i, 'image_id' : i,
+                    'category_id' : 1, # only one category
+                    'bbox' : [xs[k], ys[k], ws[k], hs[k]],
+                    'area': ws[k]*hs[k],
+                    'iscrowd': 0} for k in range(dets.shape[0])])
+                i += 1
+        with open(default_path, 'w') as outfile:
+            json.dump(json_file, outfile)
+            return default_path

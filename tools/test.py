@@ -1,4 +1,6 @@
 import argparse
+import glob
+import os
 
 import torch
 import mmcv
@@ -39,7 +41,7 @@ def _data_func(data, device_id):
 def parse_args():
     parser = argparse.ArgumentParser(description='MMDet test detector')
     parser.add_argument('config', help='test config file path')
-    parser.add_argument('checkpoint', help='checkpoint file')
+    parser.add_argument('checkpoint', help='checkpoint file or checkpoint dir')
     parser.add_argument(
         '--gpus', default=1, type=int, help='GPU number used for testing')
     parser.add_argument(
@@ -62,8 +64,20 @@ def parse_args():
 def main():
     args = parse_args()
 
-    if args.out is not None and not args.out.endswith(('.pkl', '.pickle')):
-        raise ValueError('The output file must be a pkl file.')
+    if os.path.isdir(args.checkpoint):
+        print(args.checkpoint)
+        checkpoints = glob.glob(args.checkpoint + '/epoch_*.pth')
+        checkpoints = sorted(checkpoints, key=lambda x: int(x.split('epoch_')[-1].split('.')[0]))
+        print(checkpoints)
+        if args.out is not None:
+            if not os.path.exists(args.out):
+                os.mkdir(args.out)
+            elif os.path.isfile(args.out):
+                raise ValueError('args.out must be a directory.')
+    else:
+        checkpoints = [args.checkpoint]
+        if args.out is not None and not args.out.endswith(('.pkl', '.pickle')):
+            raise ValueError('The output file must be a pkl file.')
 
     cfg = mmcv.Config.fromfile(args.config)
     # set cudnn_benchmark
@@ -73,54 +87,59 @@ def main():
     cfg.data.test.test_mode = True
 
     dataset = obj_from_dict(cfg.data.test, datasets, dict(test_mode=True))
-    if args.gpus == 1:
-        model = build_detector(
-            cfg.model, train_cfg=None, test_cfg=cfg.test_cfg)
-        load_checkpoint(model, args.checkpoint)
-        model = MMDataParallel(model, device_ids=[0])
+    for i, checkpoint in enumerate(checkpoints):
+        if args.gpus == 1:
+            model = build_detector(
+                cfg.model, train_cfg=None, test_cfg=cfg.test_cfg)
+            load_checkpoint(model, checkpoint)
+            model = MMDataParallel(model, device_ids=[0])
 
-        data_loader = build_dataloader(
-            dataset,
-            imgs_per_gpu=1,
-            workers_per_gpu=cfg.data.workers_per_gpu,
-            num_gpus=1,
-            dist=False,
-            shuffle=False)
-        outputs = single_test(model, data_loader, args.show)
-    else:
-        model_args = cfg.model.copy()
-        model_args.update(train_cfg=None, test_cfg=cfg.test_cfg)
-        model_type = getattr(detectors, model_args.pop('type'))
-        outputs = parallel_test(
-            model_type,
-            model_args,
-            args.checkpoint,
-            dataset,
-            _data_func,
-            range(args.gpus),
-            workers_per_gpu=args.proc_per_gpu)
+            data_loader = build_dataloader(
+                dataset,
+                imgs_per_gpu=1,
+                workers_per_gpu=cfg.data.workers_per_gpu,
+                num_gpus=1,
+                dist=False,
+                shuffle=False)
+            outputs = single_test(model, data_loader, args.show)
+        else:
+            model_args = cfg.model.copy()
+            model_args.update(train_cfg=None, test_cfg=cfg.test_cfg)
+            model_type = getattr(detectors, model_args.pop('type'))
+            outputs = parallel_test(
+                model_type,
+                model_args,
+                checkpoint,
+                dataset,
+                _data_func,
+                range(args.gpus),
+                workers_per_gpu=args.proc_per_gpu)
 
-    if args.out:
-        print('writing results to {}'.format(args.out))
-        mmcv.dump(outputs, args.out)
-        eval_types = args.eval
-        if eval_types:
-            print('Starting evaluate {}'.format(' and '.join(eval_types)))
-            if eval_types == ['proposal_fast']:
-                result_file = args.out
-                coco_eval(result_file, eval_types, dataset.coco)
-            else:
-                if not isinstance(outputs[0], dict):
-                    result_file = args.out + '.json'
-                    results2json(dataset, outputs, result_file)
+        outpath = args.out
+        if os.path.isdir(args.checkpoint):
+            outpath = args.out + '/%d_out.pkl' % i
+
+        if outpath:
+            print('writing results to {}'.format(outpath))
+            mmcv.dump(outputs, args.out)
+            eval_types = args.eval
+            if eval_types:
+                print('Starting evaluate {}'.format(' and '.join(eval_types)))
+                if eval_types == ['proposal_fast']:
+                    result_file = outpath
                     coco_eval(result_file, eval_types, dataset.coco)
                 else:
-                    for name in outputs[0]:
-                        print('\nEvaluating {}'.format(name))
-                        outputs_ = [out[name] for out in outputs]
-                        result_file = args.out + '.{}.json'.format(name)
-                        results2json(dataset, outputs_, result_file)
+                    if not isinstance(outputs[0], dict):
+                        result_file = outpath + '.json'
+                        results2json(dataset, outputs, result_file)
                         coco_eval(result_file, eval_types, dataset.coco)
+                    else:
+                        for name in outputs[0]:
+                            print('\nEvaluating {}'.format(name))
+                            outputs_ = [out[name] for out in outputs]
+                            result_file = outpath + '.{}.json'.format(name)
+                            results2json(dataset, outputs_, result_file)
+                            coco_eval(result_file, eval_types, dataset.coco)
 
 
 if __name__ == '__main__':
