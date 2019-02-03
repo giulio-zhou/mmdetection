@@ -10,7 +10,7 @@ class DistillDataset(CustomDataset):
     def load_annotations(self, ann_file):
         self.labels, self.img_infos = [], []
         label_df = pd.read_csv(ann_file)
-        video_dirs = sorted(glob.glob('/nvme/gzhou/kitti/training/image_02' + '/*'))
+        video_dirs = sorted(glob.glob(self.img_prefix + '/*'))
         img_paths = map(lambda x: sorted(glob.glob(x + '/*')), video_dirs)
         for video_dir, video_img_paths in zip(video_dirs, img_paths):
             video_df = label_df[label_df['filename'] == video_dir]
@@ -37,8 +37,10 @@ class DistillDataset(CustomDataset):
                 img_info = dict(filename=img_path, height=height, width=width)
                 self.labels.append(ann)
                 self.img_infos.append(img_info)
-        self.img_ids = np.arange(len(self.labels))
-        self.cat_ids = np.arange(len(DistillDataset.CLASSES))
+        self.img_ids = [i for i in range(len(self.labels))]
+        self.cat_ids = [i for i in range(len(DistillDataset.CLASSES))]
+        # For now, use img_prefix once and set it to empty afterwards.
+        self.img_prefix = ''
         return self.img_infos
     def get_ann_info(self, idx):
         return self.labels[idx]
