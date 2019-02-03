@@ -121,7 +121,7 @@ def main():
 
         if outpath:
             print('writing results to {}'.format(outpath))
-            mmcv.dump(outputs, args.out)
+            mmcv.dump(outputs, outpath)
             eval_types = args.eval
             if eval_types:
                 print('Starting evaluate {}'.format(' and '.join(eval_types)))
