@@ -194,8 +194,10 @@ class CustomDataset(Dataset):
 
         # extra augmentation
         if self.extra_aug is not None:
-            img, gt_bboxes, gt_labels = self.extra_aug(img, gt_bboxes,
-                                                       gt_labels)
+            img, gt_bboxes, idx = self.extra_aug(img, gt_bboxes,
+                                                 np.arange(len(gt_labels)))
+            gt_labels = gt_labels[idx]
+            distill_targets = distill_targets[idx]
 
         # apply transforms
         flip = True if np.random.rand() < self.flip_ratio else False
