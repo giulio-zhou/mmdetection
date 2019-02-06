@@ -85,7 +85,8 @@ class DistillDataset(CustomDataset):
                 ws = dets[:, 2] - xs # + 1
                 hs = dets[:, 3] - ys # + 1
                 anno_ids = np.arange(num_annos, num_annos + dets.shape[0])
-                xs, ys, ws, hs = map(lambda x: map(float, x), [xs, ys, ws, hs])
+                xs, ys, ws, hs = list(map(lambda x: list(map(float, x)),
+                                          [xs, ys, ws, hs]))
                 json_file['annotations'].extend(
                   [{'id': anno_ids[k], 'image_id' : i,
                     'category_id' : 0, # only one category
