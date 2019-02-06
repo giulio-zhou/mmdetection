@@ -59,9 +59,9 @@ class DistillDataset(CustomDataset):
             return default_path
         df = pd.read_csv(label_path)
         filenames = sorted(np.unique(df['filename']))
-        i = 0
+        num_annos, i = 0, 0
         json_file = {}
-        json_file['categories'] = [dict(id=1, name='obj', supercategory='obj')]
+        json_file['categories'] = [dict(id=0, name='obj', supercategory='obj')]
         json_file['images'], json_file['annotations'] = [], []
         for filename in filenames:
             print(filename)
@@ -84,14 +84,16 @@ class DistillDataset(CustomDataset):
                 ys = dets[:, 1]
                 ws = dets[:, 2] - xs # + 1
                 hs = dets[:, 3] - ys # + 1
+                anno_ids = np.arange(num_annos, num_annos + dets.shape[0])
                 xs, ys, ws, hs = map(lambda x: map(float, x), [xs, ys, ws, hs])
                 json_file['annotations'].extend(
-                  [{'id': i, 'image_id' : i,
-                    'category_id' : 1, # only one category
+                  [{'id': anno_ids[k], 'image_id' : i,
+                    'category_id' : 0, # only one category
                     'bbox' : [xs[k], ys[k], ws[k], hs[k]],
                     'area': ws[k]*hs[k],
                     'iscrowd': 0} for k in range(dets.shape[0])])
                 i += 1
+                num_annos += dets.shape[0]
         with open(default_path, 'w') as outfile:
             json.dump(json_file, outfile)
             return default_path
