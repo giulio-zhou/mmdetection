@@ -40,12 +40,9 @@ class DistillDataset(CustomDataset):
                 self.img_infos.append(img_info)
         self.img_ids = [i for i in range(len(self.labels))]
         self.cat_ids = [i for i in range(len(DistillDataset.CLASSES))]
-        # For now, use img_prefix once and set it to empty afterwards.
-        self.img_ids = np.arange(len(self.labels))
-        self.cat_ids = np.arange(len(DistillDataset.CLASSES))
         # Create COCO annotation object.
         self.coco = self._get_ann_file(ann_file)
-        # self._COCO = COCO(annofile)
+        # For now, use img_prefix once and set it to empty afterwards.
         self.img_prefix = ''
         return self.img_infos
     def get_ann_info(self, idx):
@@ -84,7 +81,8 @@ class DistillDataset(CustomDataset):
                 ys = dets[:, 1]
                 ws = dets[:, 2] - xs # + 1
                 hs = dets[:, 3] - ys # + 1
-                anno_ids = np.arange(num_annos, num_annos + dets.shape[0])
+                anno_ids = [j for j in range(num_annos,
+                                             num_annos + dets.shape[0])]
                 xs, ys, ws, hs = list(map(lambda x: list(map(float, x)),
                                           [xs, ys, ws, hs]))
                 json_file['annotations'].extend(
