@@ -1,10 +1,16 @@
 import glob
 import json
+import mmcv
 import numpy as np
 import os
+import os.path as osp
 import pandas as pd
 import skimage.io as skio
+
 from .custom import CustomDataset
+from .extra_aug import ExtraAugmentation
+from .utils import to_tensor, random_scale
+from mmcv.parallel import DataContainer as DC
 
 class DistillDataset(CustomDataset):
     """Custom dataset for detection, with support for distillation.
@@ -29,14 +35,12 @@ class DistillDataset(CustomDataset):
     The `ann` field is optional for testing.
     """
     CLASSES = ('vehicle',)
-    def load_annotations(self, ann_file):
-        self.labels, self.img_infos = [], []
-        label_df = pd.read_csv(ann_file)
-        print(self.img_prefix)
+    def _load_annotations(self, df):
+        labels, img_infos = [], []
         video_dirs = sorted(glob.glob(self.img_prefix + '/*'))
         img_paths = map(lambda x: sorted(glob.glob(x + '/*')), video_dirs)
         for video_dir, video_img_paths in zip(video_dirs, img_paths):
-            video_df = label_df[label_df['filename'] == video_dir]
+            video_df = df[df['filename'] == video_dir]
             height, width = skio.imread(video_img_paths[0]).shape[:2]
             for frame_no, img_path in enumerate(video_img_paths):
                 frame_gt = video_df[video_df['frame_no'] == frame_no]
@@ -58,8 +62,19 @@ class DistillDataset(CustomDataset):
                            distill_targets=distill_targets,
                            bboxes_ignore=np.zeros((0, 4), dtype=np.float32))
                 img_info = dict(filename=img_path, height=height, width=width)
-                self.labels.append(ann)
-                self.img_infos.append(img_info)
+                labels.append(ann)
+                img_infos.append(img_info)
+        return labels, img_infos
+
+    def load_annotations(self, ann_file):
+        self.labels, self.img_infos = [], []
+        print(self.img_prefix)
+        for ann_path in ann_file.split(','):
+            label_df = pd.read_csv(ann_file)
+            labels, img_infos = self._load_annotations(label_df)
+            self.labels.append(labels)
+            self.img_infos.append(img_infos)
+        self.labels, self.img_infos = zip(*self.labels), zip(*self.img_infos)
         self.img_ids = [i for i in range(len(self.labels))]
         self.cat_ids = [i for i in range(len(DistillDataset.CLASSES))]
         # Create COCO annotation object.
@@ -69,7 +84,8 @@ class DistillDataset(CustomDataset):
         self.img_prefix = ''
         return self.img_infos
     def get_ann_info(self, idx):
-        return self.labels[idx]
+        # Assume the first element contains the relevant annotations.
+        return self.labels[idx][0]
     def _filter_imgs(self, min_size=32):
         valid_inds = filter(lambda i: len(self.labels[i]) > 0,
                             np.arange(len(self.labels)))
@@ -128,7 +144,7 @@ class DistillDataset(CustomDataset):
         """
         self.flag = np.zeros(len(self), dtype=np.uint8)
         for i in range(len(self)):
-            ann = self.labels[i]
+            ann = self.labels[i][0]
             distill_targets = ann['distill_targets']
             if distill_targets.dtype == np.int64:
                 self.flag[i] = 1
@@ -137,7 +153,7 @@ class DistillDataset(CustomDataset):
         """Override function to prepare train inputs to allow multiple
         distillation targets.
         """
-        img_info = self.img_infos[idx]
+        img_info = self.img_infos[idx][0]
         # load image
         img = mmcv.imread(osp.join(self.img_prefix, img_info['filename']))
         # load proposals if necessary
