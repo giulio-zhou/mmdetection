@@ -24,8 +24,7 @@ class CustomDataset(Dataset):
                 'bboxes': <np.ndarray> (n, 4),
                 'labels': <np.ndarray> (n, ),
                 'bboxes_ignore': <np.ndarray> (k, 4),
-                'labels_ignore': <np.ndarray> (k, 4), (optional field)
-                'distill_targets': <np.ndarray> (n, c) (optional field)
+                'labels_ignore': <np.ndarray> (k, 4) (optional field)
             }
         },
         ...
@@ -185,8 +184,6 @@ class CustomDataset(Dataset):
         gt_labels = ann['labels']
         if self.with_crowd:
             gt_bboxes_ignore = ann['bboxes_ignore']
-        # TODO: How is this affected by augmentation?
-        distill_targets = ann['distill_targets']
 
         # skip the image if there is no valid gt bbox
         if len(gt_bboxes) == 0:
@@ -194,10 +191,8 @@ class CustomDataset(Dataset):
 
         # extra augmentation
         if self.extra_aug is not None:
-            img, gt_bboxes, idx = self.extra_aug(img, gt_bboxes,
-                                                 np.arange(len(gt_labels)))
-            gt_labels = gt_labels[idx]
-            distill_targets = distill_targets[idx]
+            img, gt_bboxes, gt_labels = self.extra_aug(img, gt_bboxes,
+                                                       gt_labels)
 
         # apply transforms
         flip = True if np.random.rand() < self.flip_ratio else False
@@ -239,8 +234,6 @@ class CustomDataset(Dataset):
             data['gt_bboxes_ignore'] = DC(to_tensor(gt_bboxes_ignore))
         if self.with_mask:
             data['gt_masks'] = DC(gt_masks, cpu_only=True)
-        if True:
-            data['distill_targets'] = DC(to_tensor(distill_targets))
         return data
 
     def prepare_test_img(self, idx):

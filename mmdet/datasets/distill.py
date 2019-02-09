@@ -7,10 +7,32 @@ import skimage.io as skio
 from .custom import CustomDataset
 
 class DistillDataset(CustomDataset):
+    """Custom dataset for detection, with support for distillation.
+
+    Annotation format:
+    [
+        {
+            'filename': 'a.jpg',
+            'width': 1280,
+            'height': 720,
+            'ann': {
+                'bboxes': <np.ndarray> (n, 4),
+                'labels': <np.ndarray> (n, ),
+                'bboxes_ignore': <np.ndarray> (k, 4),
+                'labels_ignore': <np.ndarray> (k, 4), (optional field)
+                'distill_targets': <np.ndarray> (n, c) (optional field)
+            }
+        },
+        ...
+    ]
+
+    The `ann` field is optional for testing.
+    """
     CLASSES = ('vehicle',)
     def load_annotations(self, ann_file):
         self.labels, self.img_infos = [], []
         label_df = pd.read_csv(ann_file)
+        print(self.img_prefix)
         video_dirs = sorted(glob.glob(self.img_prefix + '/*'))
         img_paths = map(lambda x: sorted(glob.glob(x + '/*')), video_dirs)
         for video_dir, video_img_paths in zip(video_dirs, img_paths):
@@ -41,7 +63,8 @@ class DistillDataset(CustomDataset):
         self.img_ids = [i for i in range(len(self.labels))]
         self.cat_ids = [i for i in range(len(DistillDataset.CLASSES))]
         # Create COCO annotation object.
-        self.coco = self._get_ann_file(ann_file)
+        if 'conf' not in label_df.columns:
+            self.coco = self._get_ann_file(ann_file)
         # For now, use img_prefix once and set it to empty afterwards.
         self.img_prefix = ''
         return self.img_infos
@@ -96,3 +119,103 @@ class DistillDataset(CustomDataset):
         with open(default_path, 'w') as outfile:
             json.dump(json_file, outfile)
             return default_path
+    def _set_group_flag(self):
+        """Set flag according to whether labels are ensemble predictions,
+        or actual ground truth.
+
+        Images with ground truth labels will be set as group 1,
+        otherwise group 0.
+        """
+        self.flag = np.zeros(len(self), dtype=np.uint8)
+        for i in range(len(self)):
+            ann = self.labels[i]
+            distill_targets = ann['distill_targets']
+            if distill_targets.dtype == np.int64:
+                self.flag[i] = 1
+        print(np.where(self.flag)[0])
+    def prepare_train_img(self, idx):
+        """Override function to prepare train inputs to allow multiple
+        distillation targets.
+        """
+        img_info = self.img_infos[idx]
+        # load image
+        img = mmcv.imread(osp.join(self.img_prefix, img_info['filename']))
+        # load proposals if necessary
+        if self.proposals is not None:
+            proposals = self.proposals[idx][:self.num_max_proposals]
+            # TODO: Handle empty proposals properly. Currently images with
+            # no proposals are just ignored, but they can be used for
+            # training in concept.
+            if len(proposals) == 0:
+                return None
+            if not (proposals.shape[1] == 4 or proposals.shape[1] == 5):
+                raise AssertionError(
+                    'proposals should have shapes (n, 4) or (n, 5), '
+                    'but found {}'.format(proposals.shape))
+            if proposals.shape[1] == 5:
+                scores = proposals[:, 4, None]
+                proposals = proposals[:, :4]
+            else:
+                scores = None
+
+        ann = self.get_ann_info(idx)
+        gt_bboxes = ann['bboxes']
+        gt_labels = ann['labels']
+        if self.with_crowd:
+            gt_bboxes_ignore = ann['bboxes_ignore']
+        distill_targets = ann['distill_targets']
+
+        # skip the image if there is no valid gt bbox
+        if len(gt_bboxes) == 0:
+            return None
+
+        # extra augmentation
+        if self.extra_aug is not None:
+            img, gt_bboxes, idx = self.extra_aug(img, gt_bboxes,
+                                                 np.arange(len(gt_labels)))
+            gt_labels = gt_labels[idx]
+            distill_targets = distill_targets[idx]
+
+        # apply transforms
+        flip = True if np.random.rand() < self.flip_ratio else False
+        img_scale = random_scale(self.img_scales)  # sample a scale
+        img, img_shape, pad_shape, scale_factor = self.img_transform(
+            img, img_scale, flip, keep_ratio=self.resize_keep_ratio)
+        img = img.copy()
+        if self.proposals is not None:
+            proposals = self.bbox_transform(proposals, img_shape, scale_factor,
+                                            flip)
+            proposals = np.hstack(
+                [proposals, scores]) if scores is not None else proposals
+        gt_bboxes = self.bbox_transform(gt_bboxes, img_shape, scale_factor,
+                                        flip)
+        if self.with_crowd:
+            gt_bboxes_ignore = self.bbox_transform(gt_bboxes_ignore, img_shape,
+                                                   scale_factor, flip)
+        if self.with_mask:
+            gt_masks = self.mask_transform(ann['masks'], pad_shape,
+                                           scale_factor, flip)
+
+        ori_shape = (img_info['height'], img_info['width'], 3)
+        img_meta = dict(
+            ori_shape=ori_shape,
+            img_shape=img_shape,
+            pad_shape=pad_shape,
+            scale_factor=scale_factor,
+            flip=flip)
+
+        data = dict(
+            img=DC(to_tensor(img), stack=True),
+            img_meta=DC(img_meta, cpu_only=True),
+            gt_bboxes=DC(to_tensor(gt_bboxes)))
+        if self.proposals is not None:
+            data['proposals'] = DC(to_tensor(proposals))
+        if self.with_label:
+            data['gt_labels'] = DC(to_tensor(gt_labels))
+        if self.with_crowd:
+            data['gt_bboxes_ignore'] = DC(to_tensor(gt_bboxes_ignore))
+        if self.with_mask:
+            data['gt_masks'] = DC(gt_masks, cpu_only=True)
+        if True:
+            data['distill_targets'] = DC(to_tensor(distill_targets))
+        return data
