@@ -35,6 +35,23 @@ class DistillDataset(CustomDataset):
     The `ann` field is optional for testing.
     """
     CLASSES = ('vehicle',)
+    def __init__(self,
+                 ann_file,
+                 img_prefix,
+                 img_scale,
+                 img_norm_cfg,
+                 **kwargs):
+        self.ann_files = ann_file.split(',')
+        if 'loss_weights' in kwargs:
+            self.loss_weights = kwargs['loss_weights']
+            del kwargs['loss_weights']
+        else:
+            self.loss_weights = np.ones(len(self.ann_files))
+        self.loss_weights = np.array(self.loss_weights, dtype=np.float32)
+        assert len(self.loss_weights) == len(self.ann_files)
+        super(DistillDataset, self).__init__(ann_file, img_prefix,
+                                             img_scale, img_norm_cfg, **kwargs)
+
     def _load_annotations(self, df):
         labels, img_infos = [], []
         video_dirs = sorted(glob.glob(self.img_prefix + '/*'))
@@ -66,20 +83,21 @@ class DistillDataset(CustomDataset):
                 img_infos.append(img_info)
         return labels, img_infos
 
-    def load_annotations(self, ann_file):
-        self.labels, self.img_infos = [], []
+    def load_annotations(self, ann_files):
+        self.coco, self.labels, self.img_infos = None, [], []
         print(self.img_prefix)
-        for ann_path in ann_file.split(','):
-            label_df = pd.read_csv(ann_file)
+        print(ann_files)
+        for ann_path in ann_files.split(','):
+            label_df = pd.read_csv(ann_path)
             labels, img_infos = self._load_annotations(label_df)
             self.labels.append(labels)
             self.img_infos.append(img_infos)
+            # Create COCO annotation object.
+            if (self.coco is not None) and ('conf' not in label_df.columns):
+                self.coco = self._get_ann_file(ann_path)
         self.labels, self.img_infos = zip(*self.labels), zip(*self.img_infos)
         self.img_ids = [i for i in range(len(self.labels))]
         self.cat_ids = [i for i in range(len(DistillDataset.CLASSES))]
-        # Create COCO annotation object.
-        if 'conf' not in label_df.columns:
-            self.coco = self._get_ann_file(ann_file)
         # For now, use img_prefix once and set it to empty afterwards.
         self.img_prefix = ''
         return self.img_infos
@@ -153,6 +171,7 @@ class DistillDataset(CustomDataset):
         """Override function to prepare train inputs to allow multiple
         distillation targets.
         """
+        # img_info should be identical for all input annotations.
         img_info = self.img_infos[idx][0]
         # load image
         img = mmcv.imread(osp.join(self.img_prefix, img_info['filename']))
@@ -174,12 +193,22 @@ class DistillDataset(CustomDataset):
             else:
                 scores = None
 
-        ann = self.get_ann_info(idx)
-        gt_bboxes = ann['bboxes']
-        gt_labels = ann['labels']
+        # TODO: Ignore masks and bboxes_ignore for now.
+        # Join together bboxes, labels, bboxes_ignore, distill_targets, masks
+        # for augmentations, keep indices to resplit after-the-fact.
+        ann = self.labels[idx]
+        ann_indices, gt_bboxes, gt_labels, distill_targets = [], [], [], []
+        for i in range(len(ann)):
+            num_bboxes = len(ann[i]['labels'])
+            ann_indices.extend([i] * num_bboxes)
+            gt_bboxes.extend(ann[i]['bboxes'])
+            gt_labels.extend(ann[i]['labels'])
+            distill_targets.extend(ann[i]['distill_targets'])
+        ann_indices, gt_bboxes, gt_labels = (
+            np.array(x) for x in [ann_indices, gt_bboxes, gt_labels])
+        distill_targets = np.array(distill_targets, dtype=np.float64)
         if self.with_crowd:
             gt_bboxes_ignore = ann['bboxes_ignore']
-        distill_targets = ann['distill_targets']
 
         # skip the image if there is no valid gt bbox
         if len(gt_bboxes) == 0:
@@ -191,6 +220,7 @@ class DistillDataset(CustomDataset):
                                                  np.arange(len(gt_labels)))
             gt_labels = gt_labels[idx]
             distill_targets = distill_targets[idx]
+            ann_indices = ann_indices[idx]
 
         # apply transforms
         flip = True if np.random.rand() < self.flip_ratio else False
@@ -220,18 +250,25 @@ class DistillDataset(CustomDataset):
             scale_factor=scale_factor,
             flip=flip)
 
+        def split_fn(elems, idx):
+            output = []
+            for i in np.unique(idx):
+                matching_elems = elems[np.where(idx == i)]
+                output.append(DC(to_tensor(matching_elems)))
+            return output
         data = dict(
             img=DC(to_tensor(img), stack=True),
             img_meta=DC(img_meta, cpu_only=True),
-            gt_bboxes=DC(to_tensor(gt_bboxes)))
+            gt_bboxes=split_fn(gt_bboxes, ann_indices))
         if self.proposals is not None:
             data['proposals'] = DC(to_tensor(proposals))
         if self.with_label:
-            data['gt_labels'] = DC(to_tensor(gt_labels))
+            data['gt_labels'] = split_fn(gt_labels, ann_indices)
         if self.with_crowd:
-            data['gt_bboxes_ignore'] = DC(to_tensor(gt_bboxes_ignore))
+            data['gt_bboxes_ignore'] = split_fn(gt_bboxes_ignore, ann_indices)
         if self.with_mask:
             data['gt_masks'] = DC(gt_masks, cpu_only=True)
         if True:
-            data['distill_targets'] = DC(to_tensor(distill_targets))
+            data['distill_targets'] = split_fn(distill_targets, ann_indices)
+            data['loss_weights'] = DC(to_tensor(self.loss_weights))
         return data
