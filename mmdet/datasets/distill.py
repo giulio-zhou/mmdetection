@@ -93,10 +93,11 @@ class DistillDataset(CustomDataset):
             self.labels.append(labels)
             self.img_infos.append(img_infos)
             # Create COCO annotation object.
-            if (self.coco is not None) and ('conf' not in label_df.columns):
+            if (self.coco is None) and ('conf' not in label_df.columns):
                 self.coco = self._get_ann_file(ann_path)
-        self.labels, self.img_infos = zip(*self.labels), zip(*self.img_infos)
-        self.img_ids = [i for i in range(len(self.labels))]
+        self.labels = list(zip(*self.labels))
+        self.img_infos = self.img_infos[0]
+        self.img_ids = [i for i in range(len(self.img_infos))]
         self.cat_ids = [i for i in range(len(DistillDataset.CLASSES))]
         # For now, use img_prefix once and set it to empty afterwards.
         self.img_prefix = ''
@@ -105,8 +106,13 @@ class DistillDataset(CustomDataset):
         # Assume the first element contains the relevant annotations.
         return self.labels[idx][0]
     def _filter_imgs(self, min_size=32):
-        valid_inds = filter(lambda i: len(self.labels[i]) > 0,
-                            np.arange(len(self.labels)))
+        valid_inds = []
+        for i in range(len(self.labels)):
+            if sum([len(x['bboxes']) for x in self.labels[i]]) > 0:
+                valid_inds.append(i)
+        # Pre-filter img_ids and labels as well for consistency.
+        self.img_ids = [self.img_ids[i] for i in valid_inds]
+        self.labels = [self.labels[i] for i in valid_inds]
         return valid_inds
     def _get_ann_file(self, label_path, default_path='distill_anno.json'):
         if os.path.exists(default_path):
@@ -171,8 +177,7 @@ class DistillDataset(CustomDataset):
         """Override function to prepare train inputs to allow multiple
         distillation targets.
         """
-        # img_info should be identical for all input annotations.
-        img_info = self.img_infos[idx][0]
+        img_info = self.img_infos[idx]
         # load image
         img = mmcv.imread(osp.join(self.img_prefix, img_info['filename']))
         # load proposals if necessary
@@ -252,7 +257,7 @@ class DistillDataset(CustomDataset):
 
         def split_fn(elems, idx):
             output = []
-            for i in np.unique(idx):
+            for i in range(len(ann)):
                 matching_elems = elems[np.where(idx == i)]
                 output.append(DC(to_tensor(matching_elems)))
             return output
