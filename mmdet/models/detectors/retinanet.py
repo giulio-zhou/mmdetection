@@ -22,7 +22,6 @@ class RetinaDistillNet(RetinaNet):
                       distill_targets, loss_weights):
         x = self.extract_feat(img)
         outs = self.bbox_head(x)
-        loss_weights = loss_weights[0] # Same for each example.
         losses = {}
         # There is guaranteed to be at least one input that has bboxes.
         for i in range(len(gt_bboxes)):
@@ -30,7 +29,7 @@ class RetinaDistillNet(RetinaNet):
                    if gt_bboxes[i][j].size()[0] > 0]
             if len(idx) == 0:
                 continue
-            curr_loss_weights = [loss_weights[j] for j in idx]
+            curr_loss_weights = [loss_weights[j][i] for j in idx]
             curr_outs = tuple([[outs[k][n][idx] for n in range(len(outs[k]))] for k in range(len(outs))])
             loss_inputs = curr_outs + ([gt_bboxes[i][j] for j in idx],
                                        [gt_labels[i][j] for j in idx],
