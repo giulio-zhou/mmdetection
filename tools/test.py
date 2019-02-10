@@ -11,6 +11,16 @@ from mmdet import datasets
 from mmdet.core import results2json, coco_eval
 from mmdet.datasets import build_dataloader
 from mmdet.models import build_detector, detectors
+from tensorboardX import SummaryWriter
+
+
+def capture_stdout(run_fn, temp_path='temp123.txt'):
+    import sys
+    stdout_ = sys.stdout
+    sys.stdout = open(temp_path, 'w')
+    run_fn()
+    sys.stdout = stdout_
+    return open(temp_path, 'r').read()
 
 
 def single_test(model, data_loader, show=False):
@@ -74,6 +84,8 @@ def main():
                 os.mkdir(args.out)
             elif os.path.isfile(args.out):
                 raise ValueError('args.out must be a directory.')
+        # Create TensorBoard writer for output checkpoint dir.
+        tensorboard_writer = SummaryWriter(args.out)
     else:
         checkpoints = [args.checkpoint]
         if args.out is not None and not args.out.endswith(('.pkl', '.pickle')):
@@ -120,6 +132,8 @@ def main():
                     range(args.gpus),
                     workers_per_gpu=args.proc_per_gpu)
 
+        # TODO: Currently assume test set is same size as training set.
+        num_iters = (i+1) * len(dataset)
         if outpath:
             if os.path.exists(outpath):
                 print('reading results from {}'.format(outpath))
@@ -137,14 +151,24 @@ def main():
                     if not isinstance(outputs[0], dict):
                         result_file = outpath + '.json'
                         results2json(dataset, outputs, result_file)
-                        coco_eval(result_file, eval_types, dataset.coco)
+                        results_dict = coco_eval(result_file, eval_types, dataset.coco)
+                        if tensorboard_writer:
+                            for eval_type in eval_types:
+                                out = capture_stdout(lambda: results_dict[eval_type].summarize())
+                                for line in out.split('\n')[:-1]:
+                                    parts = line.split('=')
+                                    name, score = '='.join(parts[:-1]), float(parts[-1])
+                                    tensorboard_writer.add_scalar('eval/' + name, score, num_iters)
                     else:
                         for name in outputs[0]:
                             print('\nEvaluating {}'.format(name))
                             outputs_ = [out[name] for out in outputs]
                             result_file = outpath + '.{}.json'.format(name)
                             results2json(dataset, outputs_, result_file)
-                            coco_eval(result_file, eval_types, dataset.coco)
+                            results_dict = coco_eval(result_file, eval_types, dataset.coco)
+                            if tensorboard_writer:
+                                for eval_type in eval_types:
+                                    out = capture_stdout(lambda: results_dict[eval_type].summarize())
 
 
 if __name__ == '__main__':

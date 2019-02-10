@@ -25,6 +25,7 @@ def coco_eval(result_file, result_types, coco, max_dets=(100, 300, 1000)):
     assert result_file.endswith('.json')
     coco_dets = coco.loadRes(result_file)
 
+    results_dict = {}
     img_ids = coco.getImgIds()
     for res_type in result_types:
         iou_type = 'bbox' if res_type == 'proposal' else res_type
@@ -36,6 +37,8 @@ def coco_eval(result_file, result_types, coco, max_dets=(100, 300, 1000)):
         cocoEval.evaluate()
         cocoEval.accumulate()
         cocoEval.summarize()
+        results_dict[res_type] = cocoEval
+    return results_dict
 
 
 def fast_eval_recall(results,
