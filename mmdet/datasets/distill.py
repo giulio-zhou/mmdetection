@@ -42,6 +42,10 @@ class DistillDataset(CustomDataset):
                  img_norm_cfg,
                  **kwargs):
         self.ann_files = ann_file.split(',')
+        # Handle default args in kwargs.
+        self.balanced = kwargs.get('balanced', False)
+        if 'balanced' in kwargs:
+            del kwargs['balanced']
         if 'loss_weights' in kwargs:
             self.loss_weights = kwargs['loss_weights']
             del kwargs['loss_weights']
@@ -163,16 +167,21 @@ class DistillDataset(CustomDataset):
         """Set flag according to whether labels are ensemble predictions,
         or actual ground truth.
 
-        Images with ground truth labels will be set as group 1,
-        otherwise group 0.
+        In balanced mode, Images with ground truth labels will be set as
+        group 1, otherwise group 0.
         """
         self.flag = np.zeros(len(self), dtype=np.uint8)
-        for i in range(len(self)):
-            ann = self.labels[i][0]
-            distill_targets = ann['distill_targets']
-            if distill_targets.dtype == np.int64:
-                self.flag[i] = 1
-        print(np.where(self.flag)[0])
+        if self.balanced:
+            sampling_frac = self.balanced[0]
+            elems_to_sample = int(sampling_frac * len(self))
+            # Assuming the first element is ground truth.
+            valid_idx = np.array([i for i in range(len(self))
+                                  if len(self.labels[i][0]['bboxes']) > 0])
+            samples = np.linspace(0, len(valid_idx), elems_to_sample,
+                                  endpoint=False, dtype=np.int32)
+            self.flag[valid_idx[samples]] = 1
+        print(0, np.where(self.flag == 0)[0])
+        print(1, np.where(self.flag == 1)[0])
     def prepare_train_img(self, idx):
         """Override function to prepare train inputs to allow multiple
         distillation targets.
@@ -275,5 +284,10 @@ class DistillDataset(CustomDataset):
             data['gt_masks'] = DC(gt_masks, cpu_only=True)
         if True:
             data['distill_targets'] = split_fn(distill_targets, ann_indices)
+        if self.balanced:
+            # Mutually exclusive weighting.
+            loss_weights = np.eye(2, dtype=np.float32)[self.flag[idx]]
+            data['loss_weights'] = DC(to_tensor(loss_weights))
+        else:
             data['loss_weights'] = DC(to_tensor(self.loss_weights))
         return data

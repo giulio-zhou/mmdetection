@@ -8,6 +8,44 @@ from torch.distributed import get_world_size, get_rank
 from torch.utils.data.sampler import Sampler
 
 
+import itertools
+class BalancedSampler(Sampler):
+
+    def __init__(self, dataset, samples_per_gpu=1):
+        assert hasattr(dataset, 'flag')
+        self.dataset = dataset
+        self.samples_per_gpu = samples_per_gpu
+        self.flag = dataset.flag.astype(np.int64)
+        self.group_sizes = np.bincount(self.flag)
+        self.num_samples = int(np.ceil(
+            len(self.flag) / self.samples_per_gpu)) * self.samples_per_gpu
+        # for i, size in enumerate(self.group_sizes):
+        #     self.num_samples += int(np.ceil(
+        #         size / self.samples_per_gpu)) * self.samples_per_gpu
+        assert samples_per_gpu % len(self.group_sizes) == 0
+
+    def __iter__(self):
+        per_group_indices = []
+        for i, size in enumerate(self.group_sizes):
+            if size == 0:
+                continue
+            indice = np.where(self.flag == i)[0]
+            # assert len(indice) == size
+            np.random.shuffle(indice)
+            # Repeat until >= self.num_samples.
+            num_repeats = int(np.ceil(
+                len(self.flag) / self.samples_per_gpu))
+            indice = np.tile(indice, num_repeats)
+            indice = indice[:self.num_samples // len(self.group_sizes)]
+            per_group_indices.append(indice)
+        indices = np.array(list(itertools.chain(*zip(*per_group_indices))))
+        indices = torch.from_numpy(indices).long()
+        return iter(indices)
+
+    def __len__(self):
+        return self.num_samples
+
+
 class GroupSampler(Sampler):
 
     def __init__(self, dataset, samples_per_gpu=1):

@@ -97,19 +97,20 @@ def _dist_train(model, dataset, cfg, validate=False):
 
 
 def _non_dist_train(model, train_dataset, cfg, validate=False):
+    build_fn = lambda dataset, cfg_dict: build_dataloader(
+        dataset,
+        cfg.data.imgs_per_gpu,
+        cfg.data.workers_per_gpu,
+        cfg.gpus,
+        dist=False,
+        balanced=cfg_dict.get('balanced', False))
+
     datasets = [train_dataset]
+    data_loaders = [build_fn(train_dataset, cfg.data.train)]
     if validate:
-        datasets.append(get_dataset(cfg.data.val))
-    # prepare data loaders
-    data_loaders = [
-        build_dataloader(
-            dataset,
-            cfg.data.imgs_per_gpu,
-            cfg.data.workers_per_gpu,
-            cfg.gpus,
-            dist=False)
-        for dataset in datasets
-    ]
+        val_dataset = get_dataset(cfg.data.val)
+        datasets.append(val_dataset)
+        data_loaders.append(build_fn(val_dataset, cfg.data.val))
     # put model on gpus
     model = MMDataParallel(model, device_ids=range(cfg.gpus)).cuda()
     # build runner

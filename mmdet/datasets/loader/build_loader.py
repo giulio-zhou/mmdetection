@@ -4,6 +4,7 @@ from mmcv.runner import get_dist_info
 from mmcv.parallel import collate
 from torch.utils.data import DataLoader
 
+from .sampler import BalancedSampler
 from .sampler import GroupSampler, DistributedGroupSampler
 
 # https://github.com/pytorch/pytorch/issues/973
@@ -25,12 +26,17 @@ def build_dataloader(dataset,
         batch_size = imgs_per_gpu
         num_workers = workers_per_gpu
     else:
-        if not kwargs.get('shuffle', True):
+        if kwargs.get('balanced', False):
+            sampler = BalancedSampler(dataset, imgs_per_gpu)
+        elif not kwargs.get('shuffle', True):
             sampler = None
         else:
             sampler = GroupSampler(dataset, imgs_per_gpu)
         batch_size = num_gpus * imgs_per_gpu
         num_workers = num_gpus * workers_per_gpu
+        # Cannot use balanced in DataLoader constructor call.
+        if 'balanced' in kwargs:
+            del kwargs['balanced']
 
     data_loader = DataLoader(
         dataset,
