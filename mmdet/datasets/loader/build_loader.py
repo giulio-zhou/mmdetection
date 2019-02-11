@@ -27,7 +27,8 @@ def build_dataloader(dataset,
         num_workers = workers_per_gpu
     else:
         if kwargs.get('balanced', False):
-            sampler = BalancedSampler(dataset, imgs_per_gpu)
+            sample_balance = kwargs.get('balanced')[1]
+            sampler = BalancedSampler(dataset, sample_balance, imgs_per_gpu)
         elif not kwargs.get('shuffle', True):
             sampler = None
         else:

@@ -11,32 +11,35 @@ from torch.utils.data.sampler import Sampler
 import itertools
 class BalancedSampler(Sampler):
 
-    def __init__(self, dataset, samples_per_gpu=1):
+    def __init__(self, dataset, sample_balance, samples_per_gpu=1):
         assert hasattr(dataset, 'flag')
         self.dataset = dataset
+        self.sample_balance = np.array(sample_balance)
+        self.sample_balance /= np.sum(self.sample_balance)
         self.samples_per_gpu = samples_per_gpu
         self.flag = dataset.flag.astype(np.int64)
         self.group_sizes = np.bincount(self.flag)
         self.num_samples = int(np.ceil(
             len(self.flag) / self.samples_per_gpu)) * self.samples_per_gpu
-        # for i, size in enumerate(self.group_sizes):
-        #     self.num_samples += int(np.ceil(
-        #         size / self.samples_per_gpu)) * self.samples_per_gpu
-        assert samples_per_gpu % len(self.group_sizes) == 0
+        assert len(self.sample_balance) == len(self.group_sizes)
+        for sample_frac in self.sample_balance:
+            num_samples = sample_frac * samples_per_gpu
+            assert int(num_samples) == num_samples
 
     def __iter__(self):
         per_group_indices = []
-        for i, size in enumerate(self.group_sizes):
-            if size == 0:
+        for i, (size, sample_frac) in enumerate(zip(self.group_sizes,
+                                                    self.sample_balance)):
+            if size == 0 or sample_frac == 0:
                 continue
             indice = np.where(self.flag == i)[0]
-            # assert len(indice) == size
             np.random.shuffle(indice)
             # Repeat until >= self.num_samples.
             num_repeats = int(np.ceil(
                 len(self.flag) / self.samples_per_gpu))
             indice = np.tile(indice, num_repeats)
-            indice = indice[:self.num_samples // len(self.group_sizes)]
+            num_samples = int(sample_frac * self.num_samples)
+            indice = indice[:num_samples]
             per_group_indices.append(indice)
         indices = np.array(list(itertools.chain(*zip(*per_group_indices))))
         indices = torch.from_numpy(indices).long()

@@ -168,9 +168,9 @@ class DistillDataset(CustomDataset):
         or actual ground truth.
 
         In balanced mode, Images with ground truth labels will be set as
-        group 1, otherwise group 0.
+        group 0, otherwise group 1.
         """
-        self.flag = np.zeros(len(self), dtype=np.uint8)
+        self.flag = np.ones(len(self), dtype=np.uint8)
         if self.balanced:
             sampling_frac = self.balanced[0]
             elems_to_sample = int(sampling_frac * len(self))
@@ -179,7 +179,7 @@ class DistillDataset(CustomDataset):
                                   if len(self.labels[i][0]['bboxes']) > 0])
             samples = np.linspace(0, len(valid_idx), elems_to_sample,
                                   endpoint=False, dtype=np.int32)
-            self.flag[valid_idx[samples]] = 1
+            self.flag[valid_idx[samples]] = 0
         print(0, np.where(self.flag == 0)[0])
         print(1, np.where(self.flag == 1)[0])
     def prepare_train_img(self, idx):
