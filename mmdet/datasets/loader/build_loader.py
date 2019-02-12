@@ -35,9 +35,11 @@ def build_dataloader(dataset,
             sampler = GroupSampler(dataset, imgs_per_gpu)
         batch_size = num_gpus * imgs_per_gpu
         num_workers = num_gpus * workers_per_gpu
-        # Cannot use balanced in DataLoader constructor call.
+        # Cannot use balanced/subsample in DataLoader constructor call.
         if 'balanced' in kwargs:
             del kwargs['balanced']
+        if 'subsample' in kwargs:
+            del kwargs['subsample']
 
     data_loader = DataLoader(
         dataset,

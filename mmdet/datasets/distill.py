@@ -46,6 +46,9 @@ class DistillDataset(CustomDataset):
         self.balanced = kwargs.get('balanced', False)
         if 'balanced' in kwargs:
             del kwargs['balanced']
+        self.subsample = kwargs.get('subsample', False)
+        if 'subsample' in kwargs:
+            del kwargs['subsample']
         if 'loss_weights' in kwargs:
             self.loss_weights = kwargs['loss_weights']
             del kwargs['loss_weights']
@@ -110,9 +113,18 @@ class DistillDataset(CustomDataset):
         # Assume the first element contains the relevant annotations.
         return self.labels[idx][0]
     def _filter_imgs(self, min_size=32):
+        keep = np.ones(len(self.labels), dtype=np.uint8)
+        print(self.subsample)
+        if self.subsample:
+            num_samples = int(len(self.labels) * self.subsample['sample_frac'])
+            if self.subsample['mode'] == 'uniform':
+                idx = np.linspace(0, len(self.labels), num_samples,
+                                  endpoint=False, dtype=np.int32)
+                keep[idx] = 0
+            keep = 1 - keep
         valid_inds = []
         for i in range(len(self.labels)):
-            if sum([len(x['bboxes']) for x in self.labels[i]]) > 0:
+            if keep[i] and sum([len(x['bboxes']) for x in self.labels[i]]) > 0:
                 valid_inds.append(i)
         # Pre-filter img_ids and labels as well for consistency.
         self.img_ids = [self.img_ids[i] for i in valid_inds]
