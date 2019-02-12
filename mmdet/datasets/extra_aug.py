@@ -143,12 +143,62 @@ class RandomCrop(object):
                 return img, boxes, labels
 
 
+class VanillaRandomCrop(object):
+
+    def __init__(self,
+                 aspect_ratios=[0.5, 2.0],
+                 area_range=[0.5, 1.0]):
+        self.aspect_ratios = aspect_ratios
+        self.area_range = area_range
+
+    def __call__(self, img, boxes, labels):
+        h, w, c = img.shape
+        area = h * w
+        aspect_ratio = h / w
+        while True:
+            for i in range(50):
+                new_w = random.uniform(0. * w, w)
+                new_h = random.uniform(0. * h, h)
+
+                if (new_h / new_w < aspect_ratio * self.aspect_ratios[0] or
+                    new_h / new_w > aspect_ratio * self.aspect_ratios[1]):
+                    continue
+                if (new_h * new_w < self.area_range[0] * area or
+                    new_h * new_w > self.area_range[1] * area):
+                    continue
+
+                left = random.uniform(w - new_w)
+                top = random.uniform(h - new_h)
+
+                patch = np.array((int(left), int(top), int(left + new_w),
+                                  int(top + new_h)))
+                # TODO: implement min_iou properly
+                # center of boxes should inside the crop img
+                center = (boxes[:, :2] + boxes[:, 2:]) / 2
+                mask = (center[:, 0] > patch[0]) * (
+                    center[:, 1] > patch[1]) * (center[:, 0] < patch[2]) * (
+                        center[:, 1] < patch[3])
+                if not mask.any():
+                    continue
+                boxes = boxes[mask]
+                labels = labels[mask]
+
+                # adjust boxes
+                img = img[patch[1]:patch[3], patch[0]:patch[2]]
+                boxes[:, 2:] = boxes[:, 2:].clip(max=patch[2:])
+                boxes[:, :2] = boxes[:, :2].clip(min=patch[:2])
+                boxes -= np.tile(patch[:2], 2)
+
+                return img, boxes, labels
+
+
 class ExtraAugmentation(object):
 
     def __init__(self,
                  photo_metric_distortion=None,
                  expand=None,
-                 random_crop=None):
+                 random_crop=None,
+                 vanilla_random_crop=None):
         self.transforms = []
         if photo_metric_distortion is not None:
             self.transforms.append(
@@ -157,6 +207,8 @@ class ExtraAugmentation(object):
             self.transforms.append(Expand(**expand))
         if random_crop is not None:
             self.transforms.append(RandomCrop(**random_crop))
+        if vanilla_random_crop is not None:
+            self.transforms.append(VanillaRandomCrop(**vanilla_random_crop))
 
     def __call__(self, img, boxes, labels):
         img = img.astype(np.float32)
