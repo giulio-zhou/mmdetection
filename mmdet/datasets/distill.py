@@ -298,8 +298,10 @@ class DistillDataset(CustomDataset):
             data['distill_targets'] = split_fn(distill_targets, ann_indices)
         if self.balanced:
             # Mutually exclusive weighting.
-            loss_weights = np.eye(2, dtype=np.float32)[self.flag[idx]]
-            data['loss_weights'] = DC(to_tensor(loss_weights))
+            # loss_weights = np.eye(2, dtype=np.float32)[self.flag[idx]]
+            # data['loss_weights'] = DC(to_tensor(loss_weights))
+            data['gt_bboxes'][1-self.flag[idx]] = DC(to_tensor([]))
+            data['loss_weights'] = DC(to_tensor(np.ones(len(ann))))
         else:
             data['loss_weights'] = DC(to_tensor(self.loss_weights))
         return data
