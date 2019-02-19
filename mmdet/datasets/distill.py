@@ -45,6 +45,9 @@ class DistillDataset(CustomDataset):
         # Handle default args in kwargs.
         self.balanced = kwargs.get('balanced', False)
         if 'balanced' in kwargs:
+            self.balanced[1] = np.array(self.balanced[1])
+            self.balanced[1] /= np.sum(self.balanced[1])
+            print(self.balanced)
             del kwargs['balanced']
         self.subsample = kwargs.get('subsample', False)
         if 'subsample' in kwargs:
