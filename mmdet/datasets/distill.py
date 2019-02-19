@@ -245,11 +245,11 @@ class DistillDataset(CustomDataset):
 
         # extra augmentation
         if self.extra_aug is not None:
-            img, gt_bboxes, idx = self.extra_aug(img, gt_bboxes,
-                                                 np.arange(len(gt_labels)))
-            gt_labels = gt_labels[idx]
-            distill_targets = distill_targets[idx]
-            ann_indices = ann_indices[idx]
+            img, gt_bboxes, i = self.extra_aug(img, gt_bboxes,
+                                               np.arange(len(gt_labels)))
+            gt_labels = gt_labels[i]
+            distill_targets = distill_targets[i]
+            ann_indices = ann_indices[i]
 
         # apply transforms
         flip = True if np.random.rand() < self.flip_ratio else False
