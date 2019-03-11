@@ -34,7 +34,23 @@ class DistillDataset(CustomDataset):
 
     The `ann` field is optional for testing.
     """
+
     CLASSES = ('vehicle',)
+    COCO_CLASSES = ('person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus',
+                    'train', 'truck', 'boat', 'traffic light', 'fire hydrant',
+                    'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog',
+                    'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe',
+                    'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee',
+                    'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat',
+                    'baseball glove', 'skateboard', 'surfboard', 'tennis racket',
+                    'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl',
+                    'banana', 'apple', 'sandwich', 'orange', 'broccoli', 'carrot',
+                    'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch',
+                    'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop',
+                    'mouse', 'remote', 'keyboard', 'cell phone', 'microwave',
+                    'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock',
+                    'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush')
+
     def __init__(self,
                  ann_file,
                  img_prefix,
@@ -42,6 +58,11 @@ class DistillDataset(CustomDataset):
                  img_norm_cfg,
                  **kwargs):
         self.ann_files = ann_file.split(',')
+        # Assign CLASSES.
+        if 'categories' in kwargs:
+            if kwargs.get('categories', None) == 'coco':
+                self.CLASSES = self.COCO_CLASSES
+            del kwargs['categories']
         # Handle default args in kwargs.
         self.balanced = kwargs.get('balanced', False)
         if 'balanced' in kwargs:
@@ -75,16 +96,29 @@ class DistillDataset(CustomDataset):
                     gt_bboxes = frame_gt[['xmin', 'ymin', 'xmax', 'ymax']]
                     gt_bboxes = np.array(gt_bboxes, dtype=np.float32)
                     gt_bboxes *= [width, height, width, height]
-                    # Assume only one category for now.
-                    gt_labels = np.ones(len(gt_bboxes), dtype=np.int64)
+                    # Map detection category to index.
+                    if 'category' in frame_gt.columns:
+                        gt_labels = [self.CLASSES.index(i) for i in frame_gt['category']]
+                        gt_labels = np.array(gt_labels, dtype=np.int64) + 1
+                    else:
+                        gt_labels = np.ones(len(gt_bboxes), dtype=np.int64)
                     if 'conf' in frame_gt.columns:
-                        distill_targets = np.array(frame_gt['conf'])
+                        # Fill all other columns with uniform 1 - conf.
+                        confs = np.array(frame_gt['conf'])
+                        # residual_confs = (1 - confs) / len(CLASSES)
+                        distill_targets = np.zeros((len(gt_bboxes), len(self.CLASSES)),
+                                                   dtype=np.float32)
+                        # distill_targets[:] = residual_confs[:, None]
+                        distill_targets[(np.arange(len(gt_bboxes)), gt_labels - 1)] = confs
                     else:
                         distill_targets = gt_labels
                 else:
-                    gt_bboxes = np.zeros((0, 4), dtype=np.float32)
-                    gt_labels = np.array([], dtype=np.int64)
-                    distill_targets = np.array([], dtype=np.float32)
+                    # Instead of throwing away images with no bounding boxes, 
+                    # add a size 0 bounding box at (0, 0) that won't be matched.
+                    gt_bboxes = 0.5 * np.array([[width, height, width, height]],
+                                               dtype=np.float32)
+                    gt_labels = np.array([0], dtype=np.int64)
+                    distill_targets = np.zeros((1, len(self.CLASSES)), dtype=np.float32)
                 ann = dict(bboxes=gt_bboxes, labels=gt_labels,
                            distill_targets=distill_targets,
                            bboxes_ignore=np.zeros((0, 4), dtype=np.float32))
@@ -107,8 +141,9 @@ class DistillDataset(CustomDataset):
                 self.coco = self._get_ann_file(ann_path)
         self.labels = list(zip(*self.labels))
         self.img_infos = self.img_infos[0]
+        print(len(self.img_infos))
         self.img_ids = [i for i in range(len(self.img_infos))]
-        self.cat_ids = [i for i in range(len(DistillDataset.CLASSES))]
+        self.cat_ids = [i for i in range(len(self.CLASSES))]
         # For now, use img_prefix once and set it to empty afterwards.
         self.img_prefix = ''
         return self.img_infos
@@ -125,10 +160,11 @@ class DistillDataset(CustomDataset):
                                   endpoint=False, dtype=np.int32)
                 keep[idx] = 0
             keep = 1 - keep
-        valid_inds = []
-        for i in range(len(self.labels)):
-            if keep[i] and sum([len(x['bboxes']) for x in self.labels[i]]) > 0:
-                valid_inds.append(i)
+        valid_inds = np.where(keep)[0]
+        # for i in range(len(self.labels)):
+            # if keep[i] and sum([len(x['bboxes']) for x in self.labels[i]]) > 0:
+            #     valid_inds.append(i)
+        print(valid_inds)
         # Pre-filter img_ids and labels as well for consistency.
         self.img_ids = [self.img_ids[i] for i in valid_inds]
         self.labels = [self.labels[i] for i in valid_inds]
@@ -137,10 +173,12 @@ class DistillDataset(CustomDataset):
         if os.path.exists(default_path):
             return default_path
         df = pd.read_csv(label_path)
-        filenames = sorted(np.unique(df['filename']))
+        # filenames = sorted(np.unique(df['filename']))
+        filenames = sorted(glob.glob(self.img_prefix + '/*'))
         num_annos, i = 0, 0
         json_file = {}
-        json_file['categories'] = [dict(id=0, name='obj', supercategory='obj')]
+        json_file['categories'] = [dict(id=i, name=c, supercategory='obj')
+                                   for i, c in enumerate(self.CLASSES)]
         json_file['images'], json_file['annotations'] = [], []
         for filename in filenames:
             print(filename)
@@ -167,9 +205,13 @@ class DistillDataset(CustomDataset):
                                              num_annos + dets.shape[0])]
                 xs, ys, ws, hs = list(map(lambda x: list(map(float, x)),
                                           [xs, ys, ws, hs]))
+                if 'category' in df.columns:
+                    cats = [self.CLASSES.index(j) for j in np.array(frame_df['category'])]
+                else:
+                    cats = [0 for _ in range(dets.shape[0])]
                 json_file['annotations'].extend(
                   [{'id': anno_ids[k], 'image_id' : i,
-                    'category_id' : 0, # only one category
+                    'category_id' : cats[k],
                     'bbox' : [xs[k], ys[k], ws[k], hs[k]],
                     'area': ws[k]*hs[k],
                     'iscrowd': 0} for k in range(dets.shape[0])])
@@ -235,7 +277,8 @@ class DistillDataset(CustomDataset):
             distill_targets.extend(ann[i]['distill_targets'])
         ann_indices, gt_bboxes, gt_labels = (
             np.array(x) for x in [ann_indices, gt_bboxes, gt_labels])
-        distill_targets = np.array(distill_targets, dtype=np.float64)
+        distill_targets = np.array(distill_targets)
+        # print('h', np.mean(distill_targets), distill_targets.shape)
         if self.with_crowd:
             gt_bboxes_ignore = ann['bboxes_ignore']
 
