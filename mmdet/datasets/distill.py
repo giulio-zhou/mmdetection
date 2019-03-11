@@ -6,6 +6,7 @@ import os
 import os.path as osp
 import pandas as pd
 import skimage.io as skio
+from PIL import Image
 
 from .custom import CustomDataset
 from .extra_aug import ExtraAugmentation
@@ -89,8 +90,8 @@ class DistillDataset(CustomDataset):
         img_paths = map(lambda x: sorted(glob.glob(x + '/*')), video_dirs)
         for video_dir, video_img_paths in zip(video_dirs, img_paths):
             video_df = df[df['filename'] == video_dir]
-            height, width = skio.imread(video_img_paths[0]).shape[:2]
             for frame_no, img_path in enumerate(video_img_paths):
+                width, height = Image.open(img_path).size
                 frame_gt = video_df[video_df['frame_no'] == frame_no]
                 if len(frame_gt) > 0:
                     gt_bboxes = frame_gt[['xmin', 'ymin', 'xmax', 'ymax']]
@@ -183,10 +184,10 @@ class DistillDataset(CustomDataset):
         for filename in filenames:
             print(filename)
             img_paths = sorted(glob.glob(filename + '/*'))
-            height, width = skio.imread(img_paths[0]).shape[:2]
             for frame_no in range(len(img_paths)):
                 frame_df = df[(df['filename'] == filename) &
                               (df['frame_no'] == frame_no)]
+                width, height = Image.open(img_paths[frame_no]).size
                 json_file['images'].extend(
                   [{'id': i,
                     'width': width,
