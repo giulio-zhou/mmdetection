@@ -88,6 +88,7 @@ def main():
         tensorboard_writer = SummaryWriter(args.out)
     else:
         checkpoints = [args.checkpoint]
+        tensorboard_writer = None
         if args.out is not None and not args.out.endswith(('.pkl', '.pickle')):
             raise ValueError('The output file must be a pkl file.')
 
